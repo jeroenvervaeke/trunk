@@ -13,6 +13,7 @@ use nipper::Document;
 
 use crate::config::RtcBuild;
 use crate::pipelines::rust_app::RustApp;
+use crate::pipelines::sse_reload::SSEReloadScript;
 use crate::pipelines::{TrunkLink, TrunkLinkPipelineOutput, TRUNK_ID};
 
 const PUBLIC_URL_MARKER_ATTR: &str = "data-trunk-public-url";
@@ -97,6 +98,10 @@ impl HtmlPipeline {
             )
             .await?;
             assets.push(TrunkLink::RustApp(app));
+        }
+
+        if self.cfg.inject_reload_script {
+            assets.push(TrunkLink::SSEReload(SSEReloadScript::new()));
         }
 
         // Spawn all asset pipelines.

@@ -20,7 +20,7 @@ pub struct Watch {
 impl Watch {
     pub async fn run(self, config: Option<PathBuf>) -> Result<()> {
         let cfg = ConfigOpts::rtc_watch(self.build, self.watch, config).await?;
-        let mut system = WatchSystem::new(cfg, spinner()).await?;
+        let mut system = WatchSystem::new(cfg, spinner(), None).await?;
         system.build().await;
         system.run().await;
         Ok(())

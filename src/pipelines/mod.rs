@@ -6,6 +6,7 @@ mod icon;
 mod rust_app;
 mod rust_worker;
 mod sass;
+mod sse_reload;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -26,6 +27,7 @@ use crate::pipelines::icon::{Icon, IconOutput};
 use crate::pipelines::rust_app::{RustApp, RustAppOutput};
 use crate::pipelines::rust_worker::{RustWorker, RustWorkerOutput};
 use crate::pipelines::sass::{Sass, SassOutput};
+use crate::pipelines::sse_reload::SSEReloadScript;
 
 pub use html::HtmlPipeline;
 
@@ -48,6 +50,7 @@ pub enum TrunkLink {
     CopyDir(CopyDir),
     RustApp(RustApp),
     RustWorker(RustWorker),
+    SSEReload(SSEReloadScript),
 }
 
 impl TrunkLink {
@@ -83,6 +86,7 @@ impl TrunkLink {
             TrunkLink::CopyDir(inner) => inner.spawn(),
             TrunkLink::RustApp(inner) => inner.spawn(),
             TrunkLink::RustWorker(inner) => inner.spawn(),
+            TrunkLink::SSEReload(inner) => inner.spawn(),
         }
     }
 }
@@ -97,6 +101,7 @@ pub enum TrunkLinkPipelineOutput {
     RustApp(RustAppOutput),
     #[allow(dead_code)] // TODO: remove this when this pipeline type is implemented.
     RustWorker(RustWorkerOutput),
+    SSEReload(SSEReloadScript),
 }
 
 impl TrunkLinkPipelineOutput {
@@ -109,6 +114,7 @@ impl TrunkLinkPipelineOutput {
             TrunkLinkPipelineOutput::CopyDir(out) => out.finalize(dom).await,
             TrunkLinkPipelineOutput::RustApp(out) => out.finalize(dom).await,
             TrunkLinkPipelineOutput::RustWorker(out) => out.finalize(dom).await,
+            TrunkLinkPipelineOutput::SSEReload(out) => out.finalize(dom).await,
         }
     }
 }

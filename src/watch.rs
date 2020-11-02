@@ -3,12 +3,13 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use async_std::task::{spawn_blocking, JoinHandle};
+use crossbeam_channel::Sender as CrossbeamSender;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::prelude::*;
 use indicatif::ProgressBar;
 use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::build::BuildSystem;
+use crate::build::{BuildEvent, BuildSystem};
 use crate::config::RtcWatch;
 
 /// A watch system wrapping a build system and a watcher.
@@ -29,7 +30,7 @@ pub struct WatchSystem {
 
 impl WatchSystem {
     /// Create a new instance.
-    pub async fn new(cfg: Arc<RtcWatch>, progress: ProgressBar) -> Result<Self> {
+    pub async fn new(cfg: Arc<RtcWatch>, progress: ProgressBar, build_event_tx: Option<CrossbeamSender<BuildEvent>>) -> Result<Self> {
         // Create a channel for being able to listen for new paths to ignore while running.
         let (watch_tx, watch_rx) = channel(1);
         let (build_tx, build_rx) = channel(1);
@@ -46,7 +47,7 @@ impl WatchSystem {
         let _watcher = build_watcher(watch_tx)?;
 
         // Build dependencies.
-        let build = BuildSystem::new(cfg.build.clone(), progress.clone(), Some(build_tx)).await?;
+        let build = BuildSystem::new(cfg.build.clone(), progress.clone(), Some(build_tx), build_event_tx).await?;
         Ok(Self {
             progress,
             build,

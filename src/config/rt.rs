@@ -17,6 +17,8 @@ pub struct RtcBuild {
     pub dist: PathBuf,
     /// The public URL from which assets are to be served.
     pub public_url: String,
+    /// If true the hot reload script will be injected in the webpage
+    pub inject_reload_script: bool,
 }
 
 impl RtcBuild {
@@ -35,6 +37,7 @@ impl RtcBuild {
             release: opts.release,
             dist: opts.dist.unwrap_or_else(|| target_parent_dir.join("dist")),
             public_url: opts.public_url.unwrap_or_else(|| "/".into()),
+            inject_reload_script: opts.inject_reload_script,
         })
     }
 }
@@ -67,6 +70,8 @@ pub struct RtcServe {
     pub port: u16,
     /// Open a browser tab once the initial build is complete.
     pub open: bool,
+    /// Reloads the webpage every time a build succeeds
+    pub hot_reload: bool,
     /// A URL to which requests will be proxied.
     pub proxy_backend: Option<Url>,
     /// The URI on which to accept requests which are to be rewritten and proxied to backend.
@@ -84,6 +89,7 @@ impl RtcServe {
             watch,
             port: opts.port.unwrap_or(8080),
             open: opts.open,
+            hot_reload: opts.hot_reload,
             proxy_backend: opts.proxy_backend,
             proxy_rewrite: opts.proxy_rewrite,
             proxies,

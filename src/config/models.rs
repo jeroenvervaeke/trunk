@@ -25,6 +25,9 @@ pub struct ConfigOptsBuild {
     /// The public URL from which assets are to be served [default: /]
     #[structopt(long, parse(from_str=parse_public_url))]
     pub public_url: Option<String>,
+    #[structopt(skip)]
+    #[serde(default)]
+    pub inject_reload_script: bool,
 }
 
 /// Config options for the watch system.
@@ -45,6 +48,10 @@ pub struct ConfigOptsServe {
     #[structopt(long)]
     #[serde(default)]
     pub open: bool,
+    /// Reloads the webpage every time a build succeeds [default: false]
+    #[structopt(long)]
+    #[serde(default)]
+    pub hot_reload: bool,
     /// A URL to which requests will be proxied [default: None]
     #[structopt(long = "proxy-backend")]
     #[serde(default)]
@@ -125,6 +132,7 @@ impl ConfigOpts {
         let build_opts = serve_layer.build.unwrap_or_default();
         let watch_opts = serve_layer.watch.unwrap_or_default();
         let serve_opts = serve_layer.serve.unwrap_or_default();
+
         Ok(Arc::new(RtcServe::new(build_opts, watch_opts, serve_opts, serve_layer.proxy)?))
     }
 
@@ -147,6 +155,7 @@ impl ConfigOpts {
             release: cli.release,
             dist: cli.dist,
             public_url: cli.public_url,
+            inject_reload_script: cli.inject_reload_script,
         };
         let cfg_build = ConfigOpts {
             build: Some(opts),
@@ -174,6 +183,7 @@ impl ConfigOpts {
         let opts = ConfigOptsServe {
             port: cli.port,
             open: cli.open,
+            hot_reload: cli.hot_reload,
             proxy_backend: cli.proxy_backend,
             proxy_rewrite: cli.proxy_rewrite,
         };
@@ -327,6 +337,12 @@ impl ConfigOpts {
             (Some(val), None) | (None, Some(val)) => Some(val),
             (Some(_), Some(g)) => Some(g), // No meshing/merging. Only take the greater value.
         };
+
+        match (&mut greater.build, &greater.serve) {
+            (Some(build), Some(serve)) => build.inject_reload_script = serve.hot_reload,
+            _ => {}
+        };
+
         greater
     }
 }
