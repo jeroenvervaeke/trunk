@@ -11,7 +11,9 @@ dist = "dist"
 public_url = "/"
 
 [watch]
-# Additional paths to ignore.
+# Paths to watch, defaults to build target parent folder.
+path = ["src"]
+# Paths to ignore.
 ignore = []
 
 [serve]
@@ -29,6 +31,12 @@ cargo = false
 ## proxy
 # Proxies are optional, and default to `None`.
 # Proxies are only run as part of the `trunk serve` command.
+
+[[proxy]]
+# This WebSocket proxy example has a backend and ws field. This example will listen for
+# WebSocket connections at `/api/ws` and proxy them to `ws://localhost:9000/api/ws`.
+backend = "ws://localhost:9000/api/ws"
+ws = true
 
 [[proxy]]
 # This proxy example has a backend and a rewrite field. Requests received on `rewrite` will be

@@ -33,8 +33,11 @@ pub struct ConfigOptsBuild {
 /// Config options for the watch system.
 #[derive(Clone, Debug, Default, Deserialize, StructOpt)]
 pub struct ConfigOptsWatch {
-    /// Additional paths to ignore [default: []]
-    #[structopt(short, long, parse(from_os_str))]
+    /// Watch specific file(s) or folder(s) [default: build target parent folder]
+    #[structopt(short, long, parse(from_os_str), value_name = "path")]
+    pub watch: Option<Vec<PathBuf>>,
+    /// Paths to ignore [default: []]
+    #[structopt(short, long, parse(from_os_str), value_name = "path")]
     pub ignore: Option<Vec<PathBuf>>,
 }
 
@@ -61,6 +64,10 @@ pub struct ConfigOptsServe {
     #[structopt(long = "proxy-rewrite")]
     #[serde(default)]
     pub proxy_rewrite: Option<String>,
+    /// Configure the proxy for handling WebSockets [default: false]
+    #[structopt(long = "proxy-ws")]
+    #[serde(default)]
+    pub proxy_ws: bool,
 }
 
 /// Config options for the serve system.
@@ -90,6 +97,9 @@ pub struct ConfigOptsProxy {
     /// When a value is specified, requests received on this URI will have this URI segment replaced
     /// with the URI of the `backend`.
     pub rewrite: Option<String>,
+    /// Configure the proxy for handling WebSockets.
+    #[serde(default)]
+    pub ws: bool,
 }
 
 /// A model of all potential configuration options for the Trunk CLI system.
@@ -141,7 +151,7 @@ impl ConfigOpts {
         let base_layer = Self::file_and_env_layers(config)?;
         let clean_layer = Self::cli_opts_layer_clean(cli_clean, base_layer);
         let clean_opts = clean_layer.clean.unwrap_or_default();
-        Ok(Arc::new(RtcClean::new(clean_opts)?))
+        Ok(Arc::new(RtcClean::new(clean_opts)))
     }
 
     /// Return the full configuration based on config file & environment variables.
@@ -168,7 +178,10 @@ impl ConfigOpts {
     }
 
     fn cli_opts_layer_watch(cli: ConfigOptsWatch, cfg_base: Self) -> Self {
-        let opts = ConfigOptsWatch { ignore: cli.ignore };
+        let opts = ConfigOptsWatch {
+            watch: cli.watch,
+            ignore: cli.ignore,
+        };
         let cfg = ConfigOpts {
             build: None,
             watch: Some(opts),
@@ -186,6 +199,7 @@ impl ConfigOpts {
             hot_reload: cli.hot_reload,
             proxy_backend: cli.proxy_backend,
             proxy_rewrite: cli.proxy_rewrite,
+            proxy_ws: cli.proxy_ws,
         };
         let cfg = ConfigOpts {
             build: None,
@@ -249,8 +263,15 @@ impl ConfigOpts {
                 });
             });
             cfg.watch.iter_mut().for_each(|watch| {
-                watch.ignore.iter_mut().for_each(|ignores_vec| {
-                    ignores_vec.iter_mut().for_each(|ignore_path| {
+                watch.watch.iter_mut().for_each(|paths| {
+                    paths.iter_mut().for_each(|path| {
+                        if !path.is_absolute() {
+                            *path = parent.join(&path);
+                        }
+                    });
+                });
+                watch.ignore.iter_mut().for_each(|ignore_vec| {
+                    ignore_vec.iter_mut().for_each(|ignore_path| {
                         if !ignore_path.is_absolute() {
                             *ignore_path = parent.join(&ignore_path);
                         }
@@ -302,6 +323,7 @@ impl ConfigOpts {
             (None, None) => None,
             (Some(val), None) | (None, Some(val)) => Some(val),
             (Some(l), Some(mut g)) => {
+                g.watch = g.watch.or(l.watch);
                 g.ignore = g.ignore.or(l.ignore);
                 Some(g)
             }
@@ -313,6 +335,7 @@ impl ConfigOpts {
                 g.proxy_backend = g.proxy_backend.or(l.proxy_backend);
                 g.proxy_rewrite = g.proxy_rewrite.or(l.proxy_rewrite);
                 g.port = g.port.or(l.port);
+                g.proxy_ws = g.proxy_ws || l.proxy_ws;
                 // NOTE: this can not be disabled in the cascade.
                 if l.open {
                     g.open = true

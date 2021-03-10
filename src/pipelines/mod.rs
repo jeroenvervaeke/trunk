@@ -3,27 +3,30 @@ mod copyfile;
 mod css;
 mod html;
 mod icon;
+mod inline;
 mod rust_app;
 mod rust_worker;
 mod sass;
 mod sse_reload;
 
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use async_std::fs;
 use async_std::task::JoinHandle;
 use futures::channel::mpsc::Sender;
 use indicatif::ProgressBar;
-use nipper::{Document, Selection};
+use nipper::Document;
 
 use crate::config::RtcBuild;
 use crate::pipelines::copydir::{CopyDir, CopyDirOutput};
 use crate::pipelines::copyfile::{CopyFile, CopyFileOutput};
 use crate::pipelines::css::{Css, CssOutput};
 use crate::pipelines::icon::{Icon, IconOutput};
+use crate::pipelines::inline::{Inline, InlineOutput};
 use crate::pipelines::rust_app::{RustApp, RustAppOutput};
 use crate::pipelines::rust_worker::{RustWorker, RustWorkerOutput};
 use crate::pipelines::sass::{Sass, SassOutput};
@@ -32,11 +35,16 @@ use crate::pipelines::sse_reload::SSEReloadScript;
 pub use html::HtmlPipeline;
 
 const ATTR_HREF: &str = "href";
+const ATTR_TYPE: &str = "type";
 const ATTR_REL: &str = "rel";
 const SNIPPETS_DIR: &str = "snippets";
 const TRUNK_ID: &str = "data-trunk-id";
 
-/// A model of all of the supported Trunk asset links expressed in the source HTML as `<trunk-link/>` elements.
+/// A mapping of all attrs associated with a specific `<link data-trunk .../>` element.
+pub type LinkAttrs = HashMap<String, String>;
+
+/// A model of all of the supported Trunk asset links expressed in the source HTML as
+/// `<trunk-link/>` elements.
 ///
 /// Trunk will remove all `<trunk-link .../>` elements found in the HTML. It is the responsibility
 /// of each pipeline to implement a pipeline finalizer method for its pipeline output in order to
@@ -46,6 +54,7 @@ pub enum TrunkLink {
     Css(Css),
     Sass(Sass),
     Icon(Icon),
+    Inline(Inline),
     CopyFile(CopyFile),
     CopyDir(CopyDir),
     RustApp(RustApp),
@@ -56,22 +65,23 @@ pub enum TrunkLink {
 impl TrunkLink {
     /// Construct a new instance.
     pub async fn from_html(
-        cfg: Arc<RtcBuild>, progress: ProgressBar, html_dir: Arc<PathBuf>, ignore_chan: Option<Sender<PathBuf>>, el: Selection<'_>, id: usize,
+        cfg: Arc<RtcBuild>, progress: ProgressBar, html_dir: Arc<PathBuf>, ignore_chan: Option<Sender<PathBuf>>, attrs: LinkAttrs, id: usize,
     ) -> Result<Self> {
-        let rel = el
-            .attr(ATTR_REL)
-            .ok_or_else(|| anyhow!("all <link data-trunk .../> elements must have a `rel` attribute indicating the asset type"))?;
-        Ok(match rel.as_ref() {
-            Sass::TYPE_SASS | Sass::TYPE_SCSS => Self::Sass(Sass::new(cfg.clone(), progress, html_dir, el, id).await?),
-            Icon::TYPE_ICON => Self::Icon(Icon::new(cfg.clone(), progress, html_dir, el, id).await?),
-            Css::TYPE_CSS => Self::Css(Css::new(cfg.clone(), progress, html_dir, el, id).await?),
-            CopyFile::TYPE_COPY_FILE => Self::CopyFile(CopyFile::new(cfg.clone(), progress, html_dir, el, id).await?),
-            CopyDir::TYPE_COPY_DIR => Self::CopyDir(CopyDir::new(cfg.clone(), progress, html_dir, el, id).await?),
-            RustApp::TYPE_RUST_APP => Self::RustApp(RustApp::new(cfg.clone(), progress, html_dir, ignore_chan, el, id).await?),
-            RustWorker::TYPE_RUST_WORKER => Self::RustWorker(RustWorker::new(cfg.clone(), progress, html_dir, ignore_chan, el, id).await?),
+        let rel = attrs
+            .get(ATTR_REL)
+            .context("all <link data-trunk .../> elements must have a `rel` attribute indicating the asset type")?;
+        Ok(match rel.as_str() {
+            Sass::TYPE_SASS | Sass::TYPE_SCSS => Self::Sass(Sass::new(cfg, progress, html_dir, attrs, id).await?),
+            Icon::TYPE_ICON => Self::Icon(Icon::new(cfg, progress, html_dir, attrs, id).await?),
+            Inline::TYPE_INLINE => Self::Inline(Inline::new(progress, html_dir, attrs, id).await?),
+            Css::TYPE_CSS => Self::Css(Css::new(cfg, progress, html_dir, attrs, id).await?),
+            CopyFile::TYPE_COPY_FILE => Self::CopyFile(CopyFile::new(cfg, progress, html_dir, attrs, id).await?),
+            CopyDir::TYPE_COPY_DIR => Self::CopyDir(CopyDir::new(cfg, progress, html_dir, attrs, id).await?),
+            RustApp::TYPE_RUST_APP => Self::RustApp(RustApp::new(cfg, progress, html_dir, ignore_chan, attrs, id).await?),
+            RustWorker::TYPE_RUST_WORKER => Self::RustWorker(RustWorker::new(cfg, progress, html_dir, ignore_chan, attrs, id).await?),
             _ => bail!(
                 r#"unknown <link data-trunk .../> attr value `rel="{}"`; please ensure the value is lowercase and is a supported asset type"#,
-                rel.as_ref()
+                rel
             ),
         })
     }
@@ -82,6 +92,7 @@ impl TrunkLink {
             TrunkLink::Css(inner) => inner.spawn(),
             TrunkLink::Sass(inner) => inner.spawn(),
             TrunkLink::Icon(inner) => inner.spawn(),
+            TrunkLink::Inline(inner) => inner.spawn(),
             TrunkLink::CopyFile(inner) => inner.spawn(),
             TrunkLink::CopyDir(inner) => inner.spawn(),
             TrunkLink::RustApp(inner) => inner.spawn(),
@@ -96,6 +107,7 @@ pub enum TrunkLinkPipelineOutput {
     Css(CssOutput),
     Sass(SassOutput),
     Icon(IconOutput),
+    Inline(InlineOutput),
     CopyFile(CopyFileOutput),
     CopyDir(CopyDirOutput),
     RustApp(RustAppOutput),
@@ -110,6 +122,7 @@ impl TrunkLinkPipelineOutput {
             TrunkLinkPipelineOutput::Css(out) => out.finalize(dom).await,
             TrunkLinkPipelineOutput::Sass(out) => out.finalize(dom).await,
             TrunkLinkPipelineOutput::Icon(out) => out.finalize(dom).await,
+            TrunkLinkPipelineOutput::Inline(out) => out.finalize(dom).await,
             TrunkLinkPipelineOutput::CopyFile(out) => out.finalize(dom).await,
             TrunkLinkPipelineOutput::CopyDir(out) => out.finalize(dom).await,
             TrunkLinkPipelineOutput::RustApp(out) => out.finalize(dom).await,
@@ -186,7 +199,8 @@ impl AssetFile {
         Ok(file_path)
     }
 
-    /// Copy this asset to the target dir after hashing its contents & updating the filename with the hash.
+    /// Copy this asset to the target dir after hashing its contents & updating the filename with
+    /// the hash.
     pub async fn copy_with_hash(&self, to_dir: &Path) -> Result<HashedFileOutput> {
         let bytes = fs::read(&self.path)
             .await
@@ -199,6 +213,13 @@ impl AssetFile {
             .await
             .with_context(|| format!("error copying file {:?} to {:?}", &self.path, &file_path))?;
         Ok(HashedFileOutput { hash, file_path, file_name })
+    }
+
+    /// Read the content of this asset to a String.
+    pub async fn read_to_string(&self) -> Result<String> {
+        fs::read_to_string(&self.path)
+            .await
+            .with_context(|| format!("error reading file {:?} to string", self.path))
     }
 }
 

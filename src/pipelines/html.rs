@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, ensure, Context, Result};
+use anyhow::{ensure, Context, Result};
 use async_std::fs;
 use async_std::task::{spawn_local, JoinHandle};
 use futures::channel::mpsc::Sender;
@@ -14,7 +14,7 @@ use nipper::Document;
 use crate::config::RtcBuild;
 use crate::pipelines::rust_app::RustApp;
 use crate::pipelines::sse_reload::SSEReloadScript;
-use crate::pipelines::{TrunkLink, TrunkLinkPipelineOutput, TRUNK_ID};
+use crate::pipelines::{LinkAttrs, TrunkLink, TrunkLinkPipelineOutput, TRUNK_ID};
 
 const PUBLIC_URL_MARKER_ATTR: &str = "data-trunk-public-url";
 
@@ -44,7 +44,7 @@ impl HtmlPipeline {
         let target_html_dir = Arc::new(
             target_html_path
                 .parent()
-                .ok_or_else(|| anyhow!("failed to determine parent dir of target HTML file"))?
+                .context("failed to determine parent dir of target HTML file")?
                 .to_owned(),
         );
 
@@ -72,14 +72,23 @@ impl HtmlPipeline {
 
         // Iterator over all `link[data-trunk]` elements, assigning IDs & building pipelines.
         let mut assets = vec![];
-        for (id, mut link) in target_html.select(r#"link[data-trunk]"#).iter().enumerate() {
+        let links = target_html.select(r#"link[data-trunk]"#);
+        for (id, link) in links.nodes().iter().enumerate() {
+            // Set the link's Trunk ID & accumulate all attrs. The main reason we collect this as
+            // raw data instead of passing around the link itself is so that we are not
+            // constrainted by `!Send` types.
             link.set_attr(TRUNK_ID, &id.to_string());
+            let attrs = link.attrs().into_iter().fold(LinkAttrs::new(), |mut acc, attr| {
+                acc.insert(attr.name.local.as_ref().to_string(), attr.value.to_string());
+                acc
+            });
+
             let asset = TrunkLink::from_html(
                 self.cfg.clone(),
                 self.progress.clone(),
                 self.target_html_dir.clone(),
                 self.ignore_chan.clone(),
-                link,
+                attrs,
                 id,
             )
             .await?;
@@ -88,7 +97,7 @@ impl HtmlPipeline {
 
         // Ensure we have a Rust app pipeline to spawn.
         let rust_app_nodes = target_html.select(r#"link[data-trunk][rel="rust"]"#).length();
-        ensure!(rust_app_nodes <= 1, r#"only one <link data-trunk rel="rust" .../> link may be specified"#);
+        ensure!(rust_app_nodes <= 1, r#"only one <link data-trunk rel="rust" .../> may be specified"#);
         if rust_app_nodes == 0 {
             let app = RustApp::new_default(
                 self.cfg.clone(),
@@ -113,17 +122,18 @@ impl HtmlPipeline {
         self.finalize_html(&mut target_html);
 
         // Assemble a new output index.html file.
-        let output_html = target_html.html(); // TODO: prettify this output.
-        fs::write(self.cfg.dist.join("index.html"), output_html.as_bytes())
+        let output_html = target_html.html().to_string(); // TODO: prettify this output.
+        fs::write(self.cfg.staging_dist.join("index.html"), &output_html)
             .await
             .context("error writing finalized HTML output")?;
+
         Ok(())
     }
 
     /// Finalize asset pipelines & prep the DOM for final output.
     async fn finalize_asset_pipelines(&self, target_html: &mut Document, mut pipelines: AssetPipelineHandles) -> Result<()> {
         while let Some(asset_res) = pipelines.next().await {
-            let asset = asset_res?;
+            let asset = asset_res.context("failed to spawn assets finalization")?;
             asset.finalize(target_html).await?;
         }
         Ok(())

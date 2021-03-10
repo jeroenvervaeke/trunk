@@ -2,10 +2,13 @@
 <div align="center">
 
 [![Build Status](https://github.com/thedodd/trunk/workflows/ci/badge.svg?branch=master)](https://github.com/thedodd/trunk/actions)
-[![](https://img.shields.io/crates/v/trunk.svg?style=flat-square)](https://crates.io/crates/trunk)
+[![](https://img.shields.io/crates/v/trunk.svg?color=brightgreen&style=flat-square)](https://crates.io/crates/trunk)
+[![](https://img.shields.io/homebrew/v/trunk?color=brightgreen&style=flat-square)](https://formulae.brew.sh/formula/trunk)
 ![](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square)
+[![Discord Chat](https://img.shields.io/discord/793890238267260958?logo=discord&style=flat-square)](https://discord.gg/JEPdBujTDr)
 ![](https://img.shields.io/crates/d/trunk?label=downloads%20%28crates.io%29&style=flat-square)
 ![](https://img.shields.io/github/downloads/thedodd/trunk/total?label=downloads%20%28GH%29&style=flat-square)
+![](https://img.shields.io/homebrew/installs/dy/trunk?color=brightgreen&label=downloads%20%28brew%29&style=flat-square)
 
   <strong>
     Build, bundle & ship your Rust WASM application to the web.
@@ -31,7 +34,7 @@ brew install trunk
 wget -qO- https://github.com/thedodd/trunk/releases/download/${VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xzf-
 
 # Install via cargo.
-cargo install trunk
+cargo install --locked trunk
 ```
 <small>Release binaries can be found on the [Github releases page](https://github.com/thedodd/trunk/releases).</small>
 
@@ -39,6 +42,14 @@ Next, we will need to install `wasm-bindgen-cli`. In the future Trunk will handl
 ```
 cargo install wasm-bindgen-cli
 ```
+
+If using wasm-opt, we will need to install `wasm-opt` which is part of `binaryen`. On MacOS we can install it with Homebrew:
+
+```sh
+brew install binaryen
+```
+
+Some linux distributions provide a `binaryen` package in their package managers but if it's not available, outdated or you're on Windows, then we can grab a [pre-compiled release](https://github.com/WebAssembly/binaryen/releases), extract it and put the `wasm-opt` binary in some location that's available on the PATH.
 
 ### app setup
 Get setup with your favorite `wasm-bindgen` based framework. [Yew](https://github.com/yewstack/yew) & [Seed](https://github.com/seed-rs/seed) are the most popular options today, but there are others. Trunk will work with any `wasm-bindgen` based framework. The easiest way to ensure that your application launches properly is to [setup your app as an executable](https://doc.rust-lang.org/cargo/guide/project-layout.html) with a standard `main` function:
@@ -105,10 +116,14 @@ Currently supported asset types:
 - ✅ `rust`: Trunk will compile the specified Cargo project as the main WASM application. This is optional. If not specified, Trunk will look for a `Cargo.toml` in the parent directory of the source HTML file.
   - `href`: (optional) the path to the `Cargo.toml` of the Rust project. If a directory is specified, then Trunk will look for the `Cargo.toml` in the given directory. If no value is specified, then Trunk will look for a `Cargo.toml` in the parent directory of the source HTML file.
   - `data-bin`: (optional) the name of the binary to compile and use as the main WASM application. If the Cargo project has multiple binaries, this value will be required for proper functionality.
+  - `data-wasm-opt`: (optional) run wasm-opt with the set optimization level. wasm-opt is **turned off by default** but that may change in the future. The possible values are `0`, `1`, `2`, `3`, `4`, `s`, `z` or an _empty value_ for wasm-opt's default. Set this option to `0` to disable wasm-opt explicitly. The values `1-4` are increasingly stronger optimization levels for speed. `s` and `z` (z means more optimization) optimize for binary size instead.
 - ✅ `sass`, `scss`: Trunk ships with a [built-in sass/scss compiler](https://github.com/compass-rs/sass-rs). Just link to your sass files from your source HTML, and Trunk will handle the rest. This content is hashed for cache control. The `href` attribute must be included in the link pointing to the sass/scss file to be processed.
 - ✅ `css`: Trunk will copy linked css files found in the source HTML without content modification. This content is hashed for cache control. The `href` attribute must be included in the link pointing to the css file to be processed.
   - In the future, Trunk will resolve local `@imports`, will handle minification (see [trunk#7](https://github.com/thedodd/trunk/issues/3)), and we may even look into a pattern where any CSS found in the source tree will be bundled, which would enable a nice zero-config "component styles" pattern. See [trunk#3](https://github.com/thedodd/trunk/issues/3) for more details.
 - ✅ `icon`: Trunk will copy the icon image specified in the `href` attribute to the `dist` dir. This content is hashed for cache control.
+- ✅ `inline`: Trunk will inline the content of the file specified in the `href` attribute into `index.html`. This content is copied exactly, no hashing is performed.
+  - `type`: (optional) either `html`, `css`, or `js`. If not present, the type is inferred by the file extension. `css` is wrapped in `style` tags, while
+  `js` is wrapped in `script` tags.
 - ✅ `copy-file`: Trunk will copy the file specified in the `href` attribute to the `dist` dir. This content is copied exactly, no hashing is performed.
 - ✅ `copy-dir`: Trunk will recursively copy the directory specified in the `href` attribute to the `dist` dir. This content is copied exactly, no hashing is performed.
 - ⏳ `rust-worker`: (in-progress) Trunk will compile the specified Rust project as a WASM web worker. The following attributes are required:
@@ -141,7 +156,7 @@ Trunk supports an optional `Trunk.toml` config file. An example config file is i
 Note that any relative paths declared in a `Trunk.toml` file will be treated as being relative to the `Trunk.toml` file itself.
 
 ### environment variables
-Trunk environment variables mirror the `Trunk.toml` config schema. All Trunk environment variables have the following 3 part form `TRUNK_<SECTION>_<ITEM>`, where `TRUNK_` is the required prefix, `<SECTION>` is one of the `Trunk.toml` sections, and `<ITEM>` is a specific configuration item from the corresponding section. E.G., `TRUNK_SERVE_PORT=80` will cause `trunk serve` to listen on port `80`. The equivalent CLI invokation would be `trunk serve --port=80`.
+Trunk environment variables mirror the `Trunk.toml` config schema. All Trunk environment variables have the following 3 part form `TRUNK_<SECTION>_<ITEM>`, where `TRUNK_` is the required prefix, `<SECTION>` is one of the `Trunk.toml` sections, and `<ITEM>` is a specific configuration item from the corresponding section. E.G., `TRUNK_SERVE_PORT=80` will cause `trunk serve` to listen on port `80`. The equivalent CLI invocation would be `trunk serve --port=80`.
 
 ### cli arguments & options
 The final configuration layer is the CLI itself. Any arguments / options provided on the CLI will take final precedence over any other config layer.
@@ -156,8 +171,10 @@ The `trunk serve` command accepts two proxy related flags.
 
 `--proxy-rewrite` specifies an alternative URI on which the Trunk server is to listen for proxy requests. Any requests received on the given URI will be rewritten to match the URI of the proxy backend, effectively stripping the rewrite prefix. E.G., `trunk serve --proxy-backend=http://localhost:9000/ --proxy-rewrite=/api/` will proxy any requests received on `/api/` over to `http://localhost:9000/` with the `/api/` prefix stripped from the request, while everything following the `/api/` prefix will be left unchanged.
 
+`--proxy-ws` specifies that the proxy is for a WebSocket endpoint.
+
 ### config file
-The `Trunk.toml` config file accepts multiple `[[proxy]]` sections, which allows for multiple proxies to be configured. Each section requires at least the `backend` field, and optionally accepts the `rewrite` field, both corresponding to the `--proxy-*` CLI flags discussed above.
+The `Trunk.toml` config file accepts multiple `[[proxy]]` sections, which allows for multiple proxies to be configured. Each section requires at least the `backend` field, and optionally accepts the `rewrite` and `ws` fields, corresponding to the `--proxy-*` CLI flags discussed above.
 
 As it is with other Trunk config, a proxy declared via CLI will take final precedence and will cause any config file proxies to be ignored, even if there are multiple proxies declared in the config file.
 

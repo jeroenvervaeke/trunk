@@ -2,7 +2,48 @@ changelog
 =========
 This changelog follows the patterns described here: https://keepachangelog.com/en/1.0.0/.
 
+Subheadings to categorize changes are `added, changed, deprecated, removed, fixed, security`.
+
 ## Unreleased
+
+## 0.9.2
+### fixed
+- Fixed a bug where build pipeline errors were being hidden/masked on subsequent builds.
+
+## 0.9.1
+### fixed
+- Fixed a bug releated to the watch system, which would cause build loops if there was an error on the initial build.
+
+## 0.9.0
+### added
+Added support for proxying WebSockets. This was a long-standing feature request. Due to changes upstream in the async-std/tide ecosystem, we are now able to properly support this. This will also unlock some nice features such as HMR via WebSockets, and other such niceties.
+
+- Added the `--proxy-ws` CLI option for enabling WebSocket proxying on a CLI defined proxy.
+- Added the `ws = true` field to the `Trunk.toml` `[[proxy]]` sections which will enable WebSocket proxying for proxies defined in the `Trunk.toml`.
+- WASM files are now automatically optimized with `wasm-opt` to reduce the binary size. The optimization level can be set with the new `data-wasm-opt` argument of the `rust` asset link and`wasm-opt` binary is now required to be globally installed on the system when being used. E.G., `<link data-trunk rel="rust" [...] data-wasm-opt="4"/>`.
+
+### fixed
+- Closed [#81](https://github.com/thedodd/trunk/issues/81): this is no longer needed as we now have support for WebSockets. HTTP2 is still outstanding, but that will not be a blocker for use from the web.
+- Closed [#95](https://github.com/thedodd/trunk/issues/95): fixed via a few small changes to precendce in routing.
+- Closed [#53](https://github.com/thedodd/trunk/issues/53): we've now implemented support for proxying WebSockets.
+
+## 0.8.3
+### fixed
+- Fixed [#133](https://github.com/thedodd/trunk/issues/133) where `watch` was infinitely looping on Windows
+because the canonicalization path didn't match the un-canonicalized ignore list.
+
+## 0.8.2 & 0.8.1
+### fixed
+- Fixed [#124](https://github.com/thedodd/trunk/issues/124) where path canonicalization was being performed on a path which did not yet exist, and as it turns out was already in canonical form.
+
+## 0.8.0
+### added
+- Closed [#93](https://github.com/thedodd/trunk/issues/93): The `watch` and `serve` subcommands can now watch specific folder(s) or file(s) through the new `--watch <path>...` option. Thanks to @malobre for all of the work on this one.
+- Inline the content of files directly into `index.html` with the new `inline` asset. There are three content types that can be inlined: `html`, `css`, and `js`. The type can be specified with the `type` attribute or is inferred by the file extension.
+
+### fixed
+- Closed [#49](https://github.com/thedodd/trunk/issues/49): old artifacts in the dist dir are now being cleaned-up as new builds successfully complete. Thanks @philip-peterson & @hamza1311 for their work on this one.
+- Fixed infinite rebuild loop on Windows started by `watch` command by path canonicalizing in the ignored paths resolver.
 
 ## 0.7.4
 ### fixed

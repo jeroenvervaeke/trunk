@@ -12,7 +12,7 @@ use tide::{sse, Middleware, Next, Request, Response, StatusCode};
 use crate::build::BuildEvent;
 use crate::common::SERVER;
 use crate::config::RtcServe;
-use crate::proxy::ProxyHandlerHttp;
+use crate::proxy::{ProxyHandler, ProxyHandlerHttp, ProxyHandlerWebSocket};
 use crate::watch::WatchSystem;
 
 /// A system encapsulating a build & watch system, responsible for serving generated content.
@@ -62,31 +62,33 @@ impl ServeSystem {
     fn spawn_server(cfg: Arc<RtcServe>, http_addr: String, progress: ProgressBar, build_event_rx: Receiver<BuildEvent>) -> Result<JoinHandle<()>> {
         // Prep state.
         let listen_addr = format!("0.0.0.0:{}", cfg.port);
-        let index = Arc::new(cfg.watch.build.dist.join("index.html"));
+        let index = Arc::new(cfg.watch.build.final_dist.join("index.html"));
 
         // Build app.
         tide::log::with_level(tide::log::LevelFilter::Error);
         let mut app = tide::with_state(State { index, build_event_rx });
         app.with(IndexHtmlMiddleware)
             .at(&cfg.watch.build.public_url)
-            .serve_dir(cfg.watch.build.dist.to_string_lossy().as_ref())?;
+            .serve_dir(cfg.watch.build.final_dist.to_string_lossy().as_ref())?;
 
         // Build proxies.
         if let Some(backend) = &cfg.proxy_backend {
-            let handler = Arc::new(ProxyHandlerHttp::new(backend.clone(), cfg.proxy_rewrite.clone()));
+            let handler: Arc<dyn ProxyHandler> = if cfg.proxy_ws {
+                Arc::new(ProxyHandlerWebSocket::new(backend.clone(), cfg.proxy_rewrite.clone()))
+            } else {
+                Arc::new(ProxyHandlerHttp::new(backend.clone(), cfg.proxy_rewrite.clone()))
+            };
             progress.println(format!("{} proxying {} -> {}\n", SERVER, handler.path(), &backend));
-            app.at(handler.path()).strip_prefix().all(move |req| {
-                let handler = handler.clone();
-                async move { handler.proxy_request(req).await }
-            });
+            handler.register(&mut app);
         } else if let Some(proxies) = &cfg.proxies {
             for proxy in proxies.iter() {
-                let handler = Arc::new(ProxyHandlerHttp::new(proxy.backend.clone(), proxy.rewrite.clone()));
+                let handler: Arc<dyn ProxyHandler> = if proxy.ws {
+                    Arc::new(ProxyHandlerWebSocket::new(proxy.backend.clone(), proxy.rewrite.clone()))
+                } else {
+                    Arc::new(ProxyHandlerHttp::new(proxy.backend.clone(), proxy.rewrite.clone()))
+                };
                 progress.println(format!("{} proxying {} -> {}\n", SERVER, handler.path(), &proxy.backend));
-                app.at(handler.path()).strip_prefix().all(move |req| {
-                    let handler = handler.clone();
-                    async move { handler.proxy_request(req).await }
-                });
+                handler.register(&mut app);
             }
         }
 
